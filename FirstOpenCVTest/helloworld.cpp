@@ -69,17 +69,6 @@ namespace
         }
     }
 
-    //Uses computed homography H to warp original input points to new planar position
-    void warpKeypoints(const Mat& H, const vector<KeyPoint>& in, vector<KeyPoint>& out)
-    {
-        vector<Point2f> pts;
-        keypoints2points(in, pts);
-        vector<Point2f> pts_w(pts.size());
-        Mat m_pts_w(pts_w);
-        perspectiveTransform(Mat(pts), m_pts_w, H);
-        points2keypoints(pts_w, out);
-    }
-
     //Converts matching indices to xy points
     void matches2points(const vector<KeyPoint>& train, const vector<KeyPoint>& query,
         const std::vector<cv::DMatch>& matches, std::vector<cv::Point2f>& pts_train,
@@ -146,32 +135,26 @@ int main(int ac, char ** av)
     vector<KeyPoint> train_kpts, query_kpts;
     vector<unsigned char> match_mask;
 
-    Mat gray;
-
     bool ref_live = true;
 
     Mat train_desc, query_desc;
-    const int DESIRED_FTRS = 500;
-    GridAdaptedFeatureDetector detector(new FastFeatureDetector(20, true), DESIRED_FTRS, 4, 4);
 
-    Mat H_prev = Mat::eye(3, 3, CV_32FC1);
+    FastFeatureDetector detector(20, true);
+
+
     for (;;)
     {
         capture >> frame;
         if (frame.empty())
             break;
 
-        cvtColor(frame, gray, CV_RGB2GRAY);
-
-        detector.detect(gray, query_kpts); //Find interest points
-
-        brief.compute(gray, query_kpts, query_desc); //Compute brief descriptors at each keypoint location
+        detector.detect(frame, query_kpts); //Find interest points
+        brief.compute(frame, query_kpts, query_desc); //Compute brief descriptors at each keypoint location
 
         if (!train_kpts.empty())
         {
 
             vector<KeyPoint> test_kpts;
-            warpKeypoints(H_prev.inv(), query_kpts, test_kpts);
 
             Mat mask = windowedMatchingMask(test_kpts, train_kpts, 25, 25);
             desc_matcher.match(query_desc, train_desc, matches, mask);
@@ -179,26 +162,12 @@ int main(int ac, char ** av)
 
             matches2points(train_kpts, query_kpts, matches, train_pts, query_pts);
 
-            if (matches.size() > 5)
-            {
-                Mat H = findHomography(train_pts, query_pts, RANSAC, 4, match_mask);
-                if (countNonZero(Mat(match_mask)) > 15)
-                {
-                    H_prev = H;
-                }
-                else
-                    resetH(H_prev);
-                drawMatchesRelative(train_kpts, query_kpts, matches, frame, match_mask);
-            }
-            else
-                resetH(H_prev);
-
+            drawMatchesRelative(train_kpts, query_kpts, matches, frame, match_mask);
         }
         else
         {
-            H_prev = Mat::eye(3, 3, CV_32FC1);
             Mat out;
-            drawKeypoints(gray, query_kpts, out);
+            drawKeypoints(frame, query_kpts, out);
             frame = out;
         }
 
@@ -214,13 +183,11 @@ int main(int ac, char ** av)
         {
         case 'l':
             ref_live = true;
-            resetH(H_prev);
             break;
         case 't':
             ref_live = false;
             train_kpts = query_kpts;
             query_desc.copyTo(train_desc);
-            resetH(H_prev);
             break;
         case 27:
         case 'q':
